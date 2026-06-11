@@ -1,0 +1,103 @@
+{
+    "status": "success",
+    "failure_reason": null,
+    "failure_category": null,
+    "url": "https://www.bbc.com/",
+    "title": "BBC Home - Breaking News, World News, US News, Sports, Business, Innovation, Climate, Culture, Travel, Video & Audio",
+    "content": "US and Iran exchange strikes across Middle East for second day in a row\nTrump says he 'loves the inflation' as US prices rise at fastest rate in three years\nWater cannon fired in latest disorder after Belfast knife attack\nThe furious dispute over what caused Air India flight 171 to crash\nKnicks owner clashes with Mamdani over tight security, cancelling NBA Finals watch party\nCanada proposes teen s...",
+    "images": [
+        {
+            "original_url": "https://ichef.bbci.co.uk/news/480/cpsprodpb/9ff1/live/b0075010-6495-11f1-8546-8f19e4fe30f4.jpg.webp",
+            "local_path": "storage/assets/b0075010-6495-11f1-8546-8f19e4fe30f4.jpg.webp",
+            "mime_type": "image/webp",
+            "file_size": 33586,
+            "alt_text": null
+        },
+        {
+            "original_url": "https://ichef.bbci.co.uk/images/ic/480x270/p0lz125l.jpg.webp",
+            "local_path": "storage/assets/p0lz125l.jpg.webp",
+            "mime_type": "image/webp",
+            "file_size": 12250,
+            "alt_text": null
+        }
+    ],
+    "documents": [],
+    "links": [
+        "https://www.bbc.com/thai",
+        "https://www.bbc.com/reel/video/p0nqp5jl/watch",
+        "https://www.bbc.com/newsletters?theessentiallist&at_bbc_team=studios&at_medium=display&at_objective=acquisition&at_ptr_type=&at_ptr_name=bbc.comhp&at_format=Module&at_link_origin=homepage&at_campaign=essentiallist&at_campaign_type=owned",
+        "https://www.bbc.com/portuguese",
+        "https://www.bbc.com/culture/art"
+    ],
+    "metadata": {
+        "description": "Visit BBC for trusted reporting on the latest world and US news, sports, business, climate, innovation, culture and much more."
+    },
+    "screenshots": [
+        "storage/screenshots/desktop.png",
+        "storage/screenshots/full_page.png"
+    ],
+    "logs": [
+        {
+            "type": "info",
+            "text": "[OPTIMIZELY] - INFO 2026-06-11T06:06:56.837Z ProjectConfigManager: Skipping JSON schema validation."
+        },
+        {
+            "type": "info",
+            "text": "[OPTIMIZELY] - INFO 2026-06-11T06:06:56.838Z Optimizely: Updated Optimizely config to revision 16 (project id 28346550223)"
+        },
+        {
+            "type": "log",
+            "text": "Messaging without detection successfully executed."
+        },
+        {
+            "type": "log",
+            "text": "interaction complete"
+        },
+        {
+            "type": "warning",
+            "text": "[GPT] PubAdsService.clearCategoryExclusions is deprecated, use googletag.setConfig({categoryExclusion: ...}) instead.\nhttps://goo.gle/gpt-message#170"
+        },
+        {
+            "type": "log",
+            "text": "setAdunits has been called, will set window.ozAdUnits now"
+        },
+        {
+            "type": "log",
+            "text": "window.ozAdUnits has been created."
+        },
+        {
+            "type": "warning",
+            "text": "[GPT] Slot.getTargeting is deprecated, use Slot.getConfig('targeting') instead.\nhttps://goo.gle/gpt-message#201"
+        },
+        {
+            "type": "warning",
+            "text": "An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing."
+        },
+        {
+            "type": "warning",
+            "text": "[.WebGL-0x12400558000]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
+        },
+        {
+            "type": "warning",
+            "text": "An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing."
+        },
+        {
+            "type": "warning",
+            "text": "[GPT] Slot dotcom-slot-mid_2 rendered inside of the viewport.\nhttps://goo.gle/gpt-message#169"
+        },
+        {
+            "type": "warning",
+            "text": "[GPT] Slot dotcom-slot-mid_3 rendered inside of the viewport.\nhttps://goo.gle/gpt-message#169"
+        },
+        {
+            "type": "log",
+            "text": "is 1 <= 0? isErrorLoggingEnabled: 0"
+        },
+        {
+            "type": "warning",
+            "text": "setCookiesEnabled is a no-op. The ltd parameter in the ad tag URL determines an ad request's ability to use cookies."
+        }
+    ],
+    "quality_score": 1.0,
+    "timestamp": "2026-06-11T06:07:08.559105"
+}
