@@ -9,7 +9,7 @@ class AssetDownloader:
         self.output_dir = "storage/assets"
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def download_asset(self, url: str) -> dict:
+    def download_asset(self, url: str, alt_text: str = None, width: int = None, height: int = None) -> dict:
         """
         Streams binary data streams over HTTP, writes content securely to disk,
         and generates required file property tracing records.
@@ -38,7 +38,10 @@ class AssetDownloader:
                     "original_url": url,
                     "local_path": local_path,
                     "mime_type": mime_type or "application/octet-stream",
-                    "file_size": file_size
+                    "file_size": file_size,
+                    "alt_text": alt_text,
+                    "width": width,
+                    "height": height
                 }
         except Exception:
             pass # Suppress failed drop links so they do not crash execution threads

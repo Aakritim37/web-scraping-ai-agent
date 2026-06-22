@@ -1,7 +1,7 @@
 # app/schemas.py
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 class AssetSchema(BaseModel):
     """
@@ -13,6 +13,11 @@ class AssetSchema(BaseModel):
     mime_type: str
     file_size: int
     alt_text: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    healthy: Optional[bool] = True
+    issue: Optional[str] = None
+    version: int = 1
 
 class ScrapeResultSchema(BaseModel):
     """
@@ -29,7 +34,35 @@ class ScrapeResultSchema(BaseModel):
     documents: List[AssetSchema] = []
     links: List[str] = []
     metadata: Dict[str, Any] = {}
+    telemetry: Dict[str, Any] = {}
     screenshots: List[str] = []
     logs: List[Dict[str, Any]] = []
     quality_score: float = 0.0
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    
+    # Technical & SEO Metadata additions
+    canonical_url: Optional[str] = None
+    keywords: List[str] = []
+    charset: Optional[str] = None
+    status_code: Optional[int] = None
+    response_headers: Dict[str, str] = {}
+    
+    # Tabular Data addition (elevated to top-level)
+    tables: List[Dict[str, Any]] = []
+
+    # Hyperlink processing additions
+    internal_links: List[str] = []
+    external_links: List[str] = []
+    redirect_chain: List[Dict[str, Any]] = []
+    verified_links: List[Dict[str, Any]] = []
+    download_links: List[str] = []
+
+    # Media Asset Pipeline additions
+    logos: List[str] = []
+    svgs: List[str] = []
+    videos: List[str] = []
+
+    # Multi-Viewport screenshot additions
+    desktop_above_fold: Optional[str] = None
+    mobile_view: Optional[str] = None
+    tablet_view: Optional[str] = None
