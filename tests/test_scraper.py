@@ -1058,5 +1058,511 @@ class TestConcurrencyAndRetry(unittest.TestCase):
              patch("app.failures.retry_on_antibot", side_effect=mock_capture):
             asyncio.run(run_test())
 
+class TestLanguageDetection(unittest.TestCase):
+    def test_extract_metadata_html_lang(self):
+        from app.extractor import ContentExtractor
+        # Test HTML lang attribute detection
+        html = '<html lang="fr"><head><title>Page</title></head><body></body></html>'
+        res = ContentExtractor.extract(html, "https://example.com")
+        self.assertEqual(res["language"], "fr")
+
+    def test_extract_metadata_header_fallback(self):
+        from app.extractor import ContentExtractor
+        # Test response header fallback when HTML lang is missing
+        html = '<html><head><title>Page</title></head><body></body></html>'
+        headers = {"content-language": "de"}
+        res = ContentExtractor.extract(html, "https://example.com", response_headers=headers)
+        self.assertEqual(res["language"], "de")
+
+        headers_cap = {"Content-Language": "es"}
+        res_cap = ContentExtractor.extract(html, "https://example.com", response_headers=headers_cap)
+        self.assertEqual(res_cap["language"], "es")
+
+    def test_extract_metadata_default_fallback(self):
+        from app.extractor import ContentExtractor
+        # Test fallback to "unknown"
+        html = '<html><head><title>Page</title></head><body></body></html>'
+        res = ContentExtractor.extract(html, "https://example.com")
+        self.assertEqual(res["language"], "unknown")
+
+class TestLayoutComponentExtraction(unittest.TestCase):
+    def test_extract_forms(self):
+        from app.extractor import ContentExtractor
+        html = '''
+        <html>
+            <body>
+                <form id="login-form" action="/login" method="post">
+                    <input name="username" type="text" />
+                    <input name="password" type="password" />
+                </form>
+            </body>
+        </html>
+        '''
+        res = ContentExtractor.extract(html, "https://example.com")
+        self.assertEqual(len(res["forms"]), 1)
+        form = res["forms"][0]
+        self.assertEqual(form["id"], "login-form")
+        self.assertEqual(form["action"], "/login")
+        self.assertEqual(form["method"], "post")
+        self.assertEqual(len(form["inputs"]), 2)
+        self.assertEqual(form["inputs"][0]["name"], "username")
+        self.assertEqual(form["inputs"][0]["type"], "text")
+
+    def test_extract_buttons(self):
+        from app.extractor import ContentExtractor
+        html = '''
+        <html>
+            <body>
+                <button id="btn1" class="btn primary">Click me</button>
+                <input id="btn2" type="submit" value="Submit Form" class="submit-btn" />
+            </body>
+        </html>
+        '''
+        res = ContentExtractor.extract(html, "https://example.com")
+        self.assertEqual(len(res["buttons"]), 2)
+        btn1 = res["buttons"][0]
+        self.assertEqual(btn1["text"], "Click me")
+        self.assertEqual(btn1["id"], "btn1")
+        self.assertEqual(btn1["class"], "btn primary")
+        
+        btn2 = res["buttons"][1]
+        self.assertEqual(btn2["text"], "Submit Form")
+        self.assertEqual(btn2["id"], "btn2")
+        self.assertEqual(btn2["class"], "submit-btn")
+
+    def test_extract_breadcrumbs(self):
+        from app.extractor import ContentExtractor
+        html = '''
+        <html>
+            <body>
+                <div class="breadcrumb">
+                    <a href="/">Home</a> /
+                    <a href="/products">Products</a> >
+                    <span>Detail</span>
+                </div>
+            </body>
+        </html>
+        '''
+        res = ContentExtractor.extract(html, "https://example.com")
+        self.assertEqual(res["breadcrumbs"], ["Home", "Products", "Detail"])
+
+    def test_extract_footer(self):
+        from app.extractor import ContentExtractor
+        html = '''
+        <html>
+            <body>
+                <div class="site-footer">
+                    <p>© 2026 Example Corp. All rights reserved.</p>
+                </div>
+            </body>
+        </html>
+        '''
+        res = ContentExtractor.extract(html, "https://example.com")
+        self.assertEqual(res["footer_content"], "© 2026 Example Corp. All rights reserved.")
+
+class TestAssetDownloaderRefactor(unittest.TestCase):
+    def setUp(self):
+        from app.downloader import AssetDownloader
+        self.downloader = AssetDownloader()
+
+    def test_downloader_routing_image(self):
+        # Test routing an image
+        with patch("requests.get") as mock_get:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.content = b"fake-image-bytes"
+            mock_resp.iter_content.return_value = [b"fake-image-bytes"]
+            mock_get.return_value = mock_resp
+            
+            res = self.downloader.download_asset("https://example.com/logo.png", asset_type="image")
+            self.assertIsNotNone(res)
+            self.assertTrue(res["healthy"])
+            self.assertEqual(res["mime_type"], "image/png")
+            self.assertIn("storage/assets/images/logo.png", res["local_path"])
+
+    def test_downloader_routing_document(self):
+        # Test routing a document
+        with patch("requests.get") as mock_get:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.content = b"fake-pdf-bytes"
+            mock_resp.iter_content.return_value = [b"fake-pdf-bytes"]
+            mock_get.return_value = mock_resp
+            
+            res = self.downloader.download_asset("https://example.com/report.pdf", asset_type="document")
+            self.assertIsNotNone(res)
+            self.assertTrue(res["healthy"])
+            self.assertEqual(res["mime_type"], "application/pdf")
+            self.assertIn("storage/assets/documents/report.pdf", res["local_path"])
+
+    def test_downloader_routing_video(self):
+        # Test routing a video
+        with patch("requests.get") as mock_get:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.content = b"fake-video-bytes"
+            mock_resp.iter_content.return_value = [b"fake-video-bytes"]
+            mock_get.return_value = mock_resp
+            
+            res = self.downloader.download_asset("https://example.com/clip.mp4", asset_type="video")
+            self.assertIsNotNone(res)
+            self.assertTrue(res["healthy"])
+            self.assertEqual(res["mime_type"], "video/mp4")
+            self.assertIn("storage/assets/videos/clip.mp4", res["local_path"])
+
+    def test_downloader_failure_handling(self):
+        # Test downloader handling connection failures gracefully
+        with patch("requests.get", side_effect=Exception("Connection timed out")):
+            res = self.downloader.download_asset("https://example.com/failed.png", asset_type="image")
+            self.assertIsNotNone(res)
+            self.assertFalse(res["healthy"])
+            self.assertEqual(res["file_size"], 0)
+            self.assertIn("Connection timed out", res["issue"])
+
+class TestMultiEngineBrowserLaunching(unittest.TestCase):
+    def setUp(self):
+        from app.browser import PlaywrightManager
+        self.manager = PlaywrightManager()
+
+    def test_invalid_browser_engine_fails_validation(self):
+        from pydantic import ValidationError
+        with self.assertRaises(ValidationError):
+            asyncio.run(self.manager.capture_page("https://example.com", browser_engine="invalid_engine"))
+
+    @patch("app.browser.async_playwright")
+    def test_launch_chromium(self, mock_ap):
+        from unittest.mock import AsyncMock
+        mock_p_instance = MagicMock()
+        mock_ap.return_value.__aenter__.return_value = mock_p_instance
+        
+        mock_browser = AsyncMock()
+        mock_p_instance.chromium.launch = AsyncMock(return_value=mock_browser)
+        
+        mock_context = AsyncMock()
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
+        
+        mock_page = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.headers = {}
+        mock_resp.request.redirected_from = None
+        mock_page.goto = AsyncMock(return_value=mock_resp)
+        mock_page.content = AsyncMock(return_value="<html></html>")
+        
+        def mock_evaluate(arg):
+            if "performance" in str(arg):
+                return {"dom_ready_time": 100, "load_duration": 200}
+            return "<html></html>"
+        mock_page.evaluate = AsyncMock(side_effect=mock_evaluate)
+        
+        asyncio.run(self.manager.capture_page("https://example.com", browser_engine="chromium", session_persistence=False))
+        
+        mock_p_instance.chromium.launch.assert_called_once()
+        mock_p_instance.firefox.launch.assert_not_called()
+        mock_p_instance.webkit.launch.assert_not_called()
+
+    @patch("app.browser.async_playwright")
+    def test_launch_firefox(self, mock_ap):
+        from unittest.mock import AsyncMock
+        mock_p_instance = MagicMock()
+        mock_ap.return_value.__aenter__.return_value = mock_p_instance
+        
+        mock_browser = AsyncMock()
+        mock_p_instance.firefox.launch = AsyncMock(return_value=mock_browser)
+        
+        mock_context = AsyncMock()
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
+        
+        mock_page = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.headers = {}
+        mock_resp.request.redirected_from = None
+        mock_page.goto = AsyncMock(return_value=mock_resp)
+        mock_page.content = AsyncMock(return_value="<html></html>")
+        
+        def mock_evaluate(arg):
+            if "performance" in str(arg):
+                return {"dom_ready_time": 100, "load_duration": 200}
+            return "<html></html>"
+        mock_page.evaluate = AsyncMock(side_effect=mock_evaluate)
+        
+        asyncio.run(self.manager.capture_page("https://example.com", browser_engine="firefox", session_persistence=False))
+        
+        mock_p_instance.firefox.launch.assert_called_once()
+        mock_p_instance.chromium.launch.assert_not_called()
+        mock_p_instance.webkit.launch.assert_not_called()
+
+    @patch("app.browser.async_playwright")
+    def test_launch_webkit(self, mock_ap):
+        from unittest.mock import AsyncMock
+        mock_p_instance = MagicMock()
+        mock_ap.return_value.__aenter__.return_value = mock_p_instance
+        
+        mock_browser = AsyncMock()
+        mock_p_instance.webkit.launch = AsyncMock(return_value=mock_browser)
+        
+        mock_context = AsyncMock()
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
+        
+        mock_page = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.headers = {}
+        mock_resp.request.redirected_from = None
+        mock_page.goto = AsyncMock(return_value=mock_resp)
+        mock_page.content = AsyncMock(return_value="<html></html>")
+        
+        def mock_evaluate(arg):
+            if "performance" in str(arg):
+                return {"dom_ready_time": 100, "load_duration": 200}
+            return "<html></html>"
+        mock_page.evaluate = AsyncMock(side_effect=mock_evaluate)
+        
+        asyncio.run(self.manager.capture_page("https://example.com", browser_engine="webkit", session_persistence=False))
+        
+        mock_p_instance.webkit.launch.assert_called_once()
+        mock_p_instance.chromium.launch.assert_not_called()
+        mock_p_instance.firefox.launch.assert_not_called()
+
+class TestMitigationBlocksAndScreenshotEvidence(unittest.TestCase):
+    def test_classify_failure_akamai(self):
+        from app.failures import classify_failure
+        res = classify_failure(status_code=403, page_content="<html>Reference ID: 12.34.56</html>", headers={})
+        self.assertEqual(res["category"], "ANTI_BOT")
+        self.assertIn("Akamai", res["reason"])
+
+    def test_classify_failure_datadome(self):
+        from app.failures import classify_failure
+        res = classify_failure(status_code=403, page_content="<html>datadome captcha-delivery.com</html>", headers={})
+        self.assertEqual(res["category"], "ANTI_BOT")
+        self.assertIn("DataDome", res["reason"])
+
+    @patch("app.browser.async_playwright")
+    def test_screenshot_evidence_on_failure(self, mock_ap):
+        from app.browser import PlaywrightManager
+        from app.failures import AkamaiBlockedError
+        from unittest.mock import AsyncMock
+        
+        manager = PlaywrightManager()
+        mock_p_instance = MagicMock()
+        mock_ap.return_value.__aenter__.return_value = mock_p_instance
+        
+        mock_browser = AsyncMock()
+        mock_p_instance.chromium.launch = AsyncMock(return_value=mock_browser)
+        
+        mock_context = AsyncMock()
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
+        
+        mock_page = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        
+        mock_resp = AsyncMock()
+        mock_resp.status = 403
+        mock_resp.headers = {}
+        mock_resp.request.redirected_from = None
+        mock_page.goto = AsyncMock(return_value=mock_resp)
+        mock_page.content = AsyncMock(return_value="<html>Reference ID: 12.34.56</html>")
+        
+        # Capture screenshot call
+        mock_page.screenshot = AsyncMock()
+        
+        with self.assertRaises(AkamaiBlockedError):
+            asyncio.run(manager.capture_page("https://example.com", browser_engine="chromium", session_persistence=False))
+            
+        mock_page.screenshot.assert_called_with(path="storage/assets/error_evidence.png", full_page=True)
+class TestPaywallMetrics(unittest.TestCase):
+    def test_tinypass_paywall_detection(self):
+        from app.extractor import ContentExtractor
+        html = """
+        <html>
+          <head>
+            <script src="https://experience.tinypass.com/x.js"></script>
+          </head>
+          <body>
+            <div>Visible teaser content</div>
+            <div class="piano-paywall">Subscribe to read more</div>
+          </body>
+        </html>
+        """
+        res = ContentExtractor.extract(html, "https://example.com")
+        self.assertTrue(res["is_paywalled"])
+        self.assertEqual(res["paywall_provider"], "tinypass")
+
+    def test_op_paywall_detection(self):
+        from app.extractor import ContentExtractor
+        html = """
+        <html>
+          <head>
+            <meta name="op:paywall" content="true">
+          </head>
+          <body>
+            <p>Visible paragraph 1</p>
+            <p>Visible paragraph 2</p>
+            <div id="paywall-container">Locked content</div>
+          </body>
+        </html>
+        """
+        res = ContentExtractor.extract(html, "https://example.com")
+        self.assertTrue(res["is_paywalled"])
+        self.assertEqual(res["paywall_provider"], "op:paywall")
+
+    def test_paywall_percentage_calculation(self):
+        from app.extractor import ContentExtractor
+        html = """
+        <html>
+          <body>
+            <p>Paragraph 1</p>
+            <p>Paragraph 2</p>
+            <div class="premium-content">
+              <p>Locked Paragraph 3</p>
+              <p>Locked Paragraph 4</p>
+              <p>Locked Paragraph 5</p>
+              <p>Locked Paragraph 6</p>
+            </div>
+            <div class="paywall-trigger">Subscribe to read more</div>
+          </body>
+        </html>
+        """
+        res = ContentExtractor.extract(html, "https://example.com")
+        self.assertTrue(res["is_paywalled"])
+        # Total paragraphs: 6 (2 visible, 4 hidden)
+        # Hidden percentage: (4 / 6) * 100 = 66.67%
+        self.assertEqual(res["paywall_percentage"], 66.67)
+class TestRobotsTxtCrawlDelayAndPersistence(unittest.TestCase):
+    @patch("requests.get")
+    def test_robots_txt_persistence_and_crawl_delay(self, mock_get):
+        import os
+        from app.extractor import ContentExtractor
+        
+        # Mock robots.txt content with crawl-delay
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "User-agent: *\nCrawl-delay: 3\nDisallow: /admin"
+        mock_get.return_value = mock_response
+        
+        url = "https://persist-robots.com/page"
+        
+        # Remove any existing history file to test saving
+        history_path = "storage/logs/robots_history/persist-robots.com.txt"
+        if os.path.exists(history_path):
+            os.remove(history_path)
+            
+        res = ContentExtractor.check_robots_allowed(url)
+        
+        # Verify allowed check
+        self.assertTrue(res.allowed)
+        
+        # Verify crawl delay parse
+        self.assertEqual(res.crawl_delay, 3.0)
+        
+        # Verify content saving to disk
+        self.assertTrue(os.path.exists(history_path))
+        with open(history_path, "r", encoding="utf-8") as f:
+            saved_content = f.read()
+        self.assertEqual(saved_content, mock_response.text)
+        
+        # Cleanup
+        if os.path.exists(history_path):
+            os.remove(history_path)
+
+    @patch("asyncio.sleep")
+    @patch("app.extractor.ContentExtractor.check_robots_allowed")
+    @patch("app.browser.async_playwright")
+    def test_crawl_delay_sleep_execution(self, mock_ap, mock_robots_allowed, mock_sleep):
+        from app.main import run_prototype
+        from app.extractor import RobotsCheckResult
+        from unittest.mock import AsyncMock
+        
+        # Mock robots.txt with crawl delay of 4 seconds
+        mock_robots_allowed.return_value = RobotsCheckResult(allowed=True, crawl_delay=4.0, content="Crawl-delay: 4")
+        
+        # Mock browser launch to avoid running real browser
+        mock_p_instance = MagicMock()
+        mock_ap.return_value.__aenter__.return_value = mock_p_instance
+        mock_browser = AsyncMock()
+        mock_p_instance.chromium.launch = AsyncMock(return_value=mock_browser)
+        mock_context = AsyncMock()
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
+        mock_page = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.headers = {}
+        mock_resp.request.redirected_from = None
+        mock_page.goto = AsyncMock(return_value=mock_resp)
+        mock_page.content = AsyncMock(return_value="<html></html>")
+        
+        def mock_evaluate(arg):
+            if "performance" in str(arg):
+                return {"dom_ready_time": 100, "load_duration": 200}
+            return "<html></html>"
+        mock_page.evaluate = AsyncMock(side_effect=mock_evaluate)
+        
+        # Run main orchestrator loop
+        asyncio.run(run_prototype("https://test-delay.com/page", session_persistence=False))
+        
+        # Verify that asyncio.sleep was called with crawl_delay (4.0) to throttle requests
+        mock_sleep.assert_any_call(4.0)
+class TestDistributedQueue(unittest.TestCase):
+    def setUp(self):
+        from app.queue_manager import celery_app, redis_client
+        celery_app.conf.task_always_eager = True
+        self.redis = redis_client
+        if hasattr(self.redis, "storage"):
+            self.redis.storage = {}
+
+    def tearDown(self):
+        from app.queue_manager import celery_app
+        celery_app.conf.task_always_eager = False
+
+    @patch("app.main.run_prototype")
+    def test_task_locking_mechanism(self, mock_run):
+        from app.queue_manager import task_scrape_url, redis_client
+        import hashlib
+        
+        url = "https://lock-check.com"
+        url_hash = hashlib.sha256(url.encode('utf-8')).hexdigest()
+        
+        async def mock_run_impl(target_url, **kwargs):
+            self.assertEqual(redis_client.get(url_hash), "locked")
+            acquired = redis_client.set(url_hash, "locked", nx=True)
+            self.assertFalse(acquired)
+            return {"status": "success", "url": target_url}
+            
+        mock_run.side_effect = mock_run_impl
+        
+        res = task_scrape_url.delay(url)
+        self.assertEqual(res.get()["status"], "success")
+        self.assertIsNone(redis_client.get(url_hash))
+
+    def test_persistence_check_on_restart(self):
+        from app.queue_manager import ScrapeQueueCoordinator, redis_client
+        
+        coordinator = ScrapeQueueCoordinator()
+        coordinator.reset()
+        
+        redis_client.set("celery_active_slots", "2")
+        redis_client.set("celery_processed_count", "15")
+        redis_client.set("some_active_lock_hash_64_chars_long_long_long_long_long_long_long_1", "locked")
+        
+        fresh_coordinator = ScrapeQueueCoordinator()
+        
+        self.assertEqual(fresh_coordinator.active_slots, 2)
+        self.assertEqual(fresh_coordinator.processed_count, 15)
+        
+        diagnostics = fresh_coordinator.get_diagnostics()
+        self.assertEqual(diagnostics["active_concurrency_slots"], 2)
+        self.assertEqual(diagnostics["total_processed_tasks"], 15)
+        self.assertIn("some_active_lock_hash_64_chars_long_long_long_long_long_long_long_1", diagnostics["active_locks"])
+
+        self.assertIn("some_active_lock_hash_64_chars_long_long_long_long_long_long_long_1", diagnostics["active_locks"])
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,8 @@ from app.failures import (
     SslHandshakeError,
     PaywallDetectedError,
     AntiBotChallengeError,
+    AkamaiBlockedError,
+    DataDomeBlockedError,
     ScraperTimeoutError,
     ScraperError,
     NetworkError,
@@ -360,7 +362,9 @@ class PlaywrightManager:
         max_pages: int = 1,
         session_persistence: bool = True,
         cookie_bypass: bool = True,
-        network_throttling: str = "Fastest"
+        network_throttling: str = "Fastest",
+        browser_engine: str = "chromium",
+        crawl_delay: float = 0.0
     ):
         """
         Launches browser with rotated identity, anti-bot stealth patches,
@@ -368,6 +372,11 @@ class PlaywrightManager:
         Supports session persistence, cookie consent auto-bypass, form orchestration,
         and multi-page crawling via next page click.
         """
+        # Validate browser_engine configuration field
+        from app.schemas import ScraperConfigSchema
+        validated_config = ScraperConfigSchema(browser_engine=browser_engine)
+        engine_to_launch = validated_config.browser_engine
+
         profile = self.generate_device_profile()
         user_agent = profile["ua"]
         platform = profile["platform"]
@@ -380,22 +389,37 @@ class PlaywrightManager:
         proxy_dict = self._parse_proxy(proxy_str)
 
         async with async_playwright() as p:
-            # 1. Chromium launch with stealth parameters and evasion options
-            launch_args = {
-                "headless": True,
-                "ignore_default_args": ["--enable-automation"],
-                "args": [
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-features=IsolateOrigins,site-per-process",
-                    "--disable-infobars",
-                    "--window-position=0,0",
-                    "--no-sandbox"
-                ]
-            }
-            if proxy_dict:
-                launch_args["proxy"] = proxy_dict
-                
-            browser = await p.chromium.launch(**launch_args)
+            if engine_to_launch == "firefox":
+                launch_args = {
+                    "headless": True,
+                    "args": ["-no-remote"]
+                }
+                if proxy_dict:
+                    launch_args["proxy"] = proxy_dict
+                browser = await p.firefox.launch(**launch_args)
+            elif engine_to_launch == "webkit":
+                launch_args = {
+                    "headless": True
+                }
+                if proxy_dict:
+                    launch_args["proxy"] = proxy_dict
+                browser = await p.webkit.launch(**launch_args)
+            else:
+                # Default chromium with stealth options
+                launch_args = {
+                    "headless": True,
+                    "ignore_default_args": ["--enable-automation"],
+                    "args": [
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-features=IsolateOrigins,site-per-process",
+                        "--disable-infobars",
+                        "--window-position=0,0",
+                        "--no-sandbox"
+                    ]
+                }
+                if proxy_dict:
+                    launch_args["proxy"] = proxy_dict
+                browser = await p.chromium.launch(**launch_args)
             
             # 2. Browser context with custom locales, viewport, and user-agent
             context_args = {
@@ -403,10 +427,11 @@ class PlaywrightManager:
                 "viewport": {"width": viewport_w, "height": viewport_h},
                 "locale": "en-US",
                 "timezone_id": "America/New_York",
-                "device_scale_factor": device_scale_factor,
-                "is_mobile": is_mobile,
-                "has_touch": is_mobile
+                "device_scale_factor": device_scale_factor
             }
+            if engine_to_launch != "firefox":
+                context_args["is_mobile"] = is_mobile
+                context_args["has_touch"] = is_mobile
             storage_path = "storage/session_state.json"
             
             # Evasion: Clean up any cached state files if session_persistence is False
@@ -617,6 +642,11 @@ class PlaywrightManager:
                 err_info = classify_failure(status_code=status_code, page_content=raw_rendered_html, headers=headers)
                 cat = err_info["category"].upper()
                 if cat == "ANTI_BOT":
+                    content_lower = raw_rendered_html.lower()
+                    if any(p in content_lower for p in ["akamai.net", "an activity identifier", "reference id:"]):
+                        raise AkamaiBlockedError(err_info["reason"])
+                    elif any(p in content_lower for p in ["datadome", "captcha-delivery.com", "dd="]):
+                        raise DataDomeBlockedError(err_info["reason"])
                     raise AntiBotChallengeError(err_info["reason"])
                 elif cat == "PAYWALLS":
                     raise PaywallDetectedError(err_info["reason"])
@@ -812,6 +842,9 @@ class PlaywrightManager:
                 # Pagination Multi-Page Loop
                 current_page_idx = 1
                 while current_page_idx < max_pages and next_page_selector:
+                    if crawl_delay > 0:
+                        print(f"[*] Throttling pagination by Crawl-delay: {crawl_delay}s...")
+                        await asyncio.sleep(crawl_delay)
                     print(f"[*] Crawling page {current_page_idx + 1} of {max_pages}...")
                     next_btn = page.locator(next_page_selector).first
                     if not await next_btn.is_visible():
@@ -882,6 +915,17 @@ class PlaywrightManager:
                 screenshot_paths = [p for p in screenshot_paths if p is not None]
 
                 return pages_html, screenshot_paths, browser_logs, metrics
+
+            except (AntiBotChallengeError, AkamaiBlockedError, DataDomeBlockedError, Exception) as e:
+                if 'page' in locals() and page:
+                    try:
+                        evidence_path = "storage/assets/error_evidence.png"
+                        os.makedirs(os.path.dirname(evidence_path), exist_ok=True)
+                        await page.screenshot(path=evidence_path, full_page=True)
+                        e.error_screenshot_path = evidence_path
+                    except Exception as ss_err:
+                        print(f"[!] Diagnostic screenshot failed: {ss_err}")
+                raise e
 
             finally:
                 if 'context' in locals() and context and session_persistence:

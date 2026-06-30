@@ -103,7 +103,12 @@ def merge_scraped_pages(parsed_pages: list, base_url: str) -> dict:
         "charset": first.get("charset"),
         "logos": [],
         "svgs": [],
-        "videos": []
+        "videos": [],
+        "language": first.get("language"),
+        "forms": [],
+        "buttons": [],
+        "breadcrumbs": first.get("breadcrumbs", []),
+        "footer_content": first.get("footer_content")
     }
     
     seen_links = set()
@@ -192,6 +197,14 @@ def merge_scraped_pages(parsed_pages: list, base_url: str) -> dict:
                 seen_videos.add(video)
                 merged["videos"].append(video)
 
+        for f in page.get("forms", []):
+            if f not in merged["forms"]:
+                merged["forms"].append(f)
+
+        for b in page.get("buttons", []):
+            if b not in merged["buttons"]:
+                merged["buttons"].append(b)
+
     merged_content = "\n".join(all_contents)
     dedup_merged, raw_p_count, dedup_p_count = ContentExtractor.deduplicate_text(merged["title"], merged_content)
     merged["content"] = dedup_merged
@@ -203,6 +216,13 @@ def merge_scraped_pages(parsed_pages: list, base_url: str) -> dict:
     merged["json_ld"] = all_json_ld
     merged["tables"] = merge_tables(all_tables_list)
     
+    merged["is_paywalled"] = any(p.get("is_paywalled", False) for p in parsed_pages)
+    merged["paywall_provider"] = next((p.get("paywall_provider") for p in parsed_pages if p.get("paywall_provider")), first.get("paywall_provider"))
+    paywall_pcts = [p.get("paywall_percentage", 0.0) for p in parsed_pages if p.get("is_paywalled")]
+    merged["paywall_percentage"] = round(sum(paywall_pcts)/len(paywall_pcts), 2) if paywall_pcts else 0.0
+    teasers = [p.get("paywall_teaser_text") for p in parsed_pages if p.get("paywall_teaser_text")]
+    merged["paywall_teaser_text"] = "\n".join(teasers) if teasers else first.get("paywall_teaser_text")
+
     return merged
 
 ACTIVE_SCRAPE_URLS = set()
@@ -216,6 +236,7 @@ async def run_prototype(
     cookie_bypass: bool = True,
     proxy_server: str = None,
     network_throttling: str = "Fastest",
+    browser_engine: str = "chromium",
     **kwargs
 ):
     global ACTIVE_SCRAPE_URLS
@@ -260,7 +281,13 @@ async def run_prototype(
         
         # Pre-flight Robots.txt policy validation
         print("[*] Running pre-flight robots.txt check...")
-        if not ContentExtractor.check_robots_allowed(url, user_agent="*"):
+        robots_res = ContentExtractor.check_robots_allowed(url, user_agent="*")
+        if isinstance(robots_res, bool):
+            from app.extractor import RobotsCheckResult
+            robots_res = RobotsCheckResult(allowed=robots_res, crawl_delay=0.0, content=None)
+        robots_content = robots_res.content
+        
+        if not robots_res:
             error_msg = f"Crawling is disallowed for {url} by the site's robots.txt rules."
             print(f"[-] {error_msg}")
             
@@ -268,6 +295,7 @@ async def run_prototype(
                 status="failed",
                 failure_category="ROBOTS_TXT",
                 failure_reason=error_msg,
+                robots_content=robots_content,
                 url=url,
                 metadata={
                     "error_details": "Robots.txt crawl check failed.",
@@ -292,6 +320,11 @@ async def run_prototype(
             print(f"[✓] Failure log written to '{output_filename}'.")
             return final_output
 
+        # Crawl-Delay Enforcement: Sleep before initial fetch if delay is specified
+        if robots_res.crawl_delay and robots_res.crawl_delay > 0:
+            print(f"[*] Throttling requests by Crawl-delay: {robots_res.crawl_delay}s...")
+            await asyncio.sleep(robots_res.crawl_delay)
+
         # Initialize PlaywrightManager with the proxy if provided
         proxy_list = [proxy_server] if proxy_server else None
         browser_agent = PlaywrightManager(proxy_list=proxy_list)
@@ -309,17 +342,19 @@ async def run_prototype(
                     max_pages=max_pages,
                     session_persistence=session_persistence,
                     cookie_bypass=cookie_bypass,
-                    network_throttling=network_throttling
+                    network_throttling=network_throttling,
+                    browser_engine=browser_engine,
+                    crawl_delay=robots_res.crawl_delay or 0.0
                 )
                 
                 # Step 2: Deep parsing of page layout components using upgraded BeautifulSoup engine
                 if isinstance(html_data, list):
                     parsed_pages = []
                     for p_html in html_data:
-                        parsed_pages.append(ContentExtractor.extract(p_html, url))
+                        parsed_pages.append(ContentExtractor.extract(p_html, url, metrics.get("headers")))
                     parsed_data = merge_scraped_pages(parsed_pages, url)
                 else:
-                    parsed_data = ContentExtractor.extract(html_data, url)
+                    parsed_data = ContentExtractor.extract(html_data, url, metrics.get("headers"))
 
                 # ─── INCREMENTAL CRAWLING AND CHANGE DETECTION ───
                 from app.history import HistoryManager
@@ -338,6 +373,9 @@ async def run_prototype(
                 delta = {}
                 
                 downloaded_images = []
+                downloaded_logos = []
+                downloaded_documents = []
+                downloaded_videos = []
                 verified_results = []
                 
                 if optimization_signal == "NO_CHANGE" and old_entry:
@@ -347,15 +385,25 @@ async def run_prototype(
                     for asset_url, cached_asset in old_assets.items():
                         updated_asset = dict(cached_asset)
                         updated_asset["version"] = cached_asset.get("version", 1) + 1
-                        downloaded_images.append(updated_asset)
                         
+                        if asset_url in parsed_data.get("logos", []):
+                            downloaded_logos.append(updated_asset)
+                        elif asset_url in parsed_data.get("documents", []):
+                            downloaded_documents.append(updated_asset)
+                        elif asset_url in parsed_data.get("videos", []):
+                            downloaded_videos.append(updated_asset)
+                        else:
+                            downloaded_images.append(updated_asset)
+                            
+                    all_downloaded_assets = downloaded_images + downloaded_logos + downloaded_documents + downloaded_videos
+                    
                     # Copy verified links
                     old_full = old_entry.get("full_scrape_result", {})
                     verified_results = old_full.get("verified_links", [])
                     
                     # Save page record to persist updated version counters in history
                     parsed_data["verified_links"] = verified_results
-                    history_mgr.save_page_record(url, content_hash, dom_hash, parsed_data, downloaded_images)
+                    history_mgr.save_page_record(url, content_hash, dom_hash, parsed_data, all_downloaded_assets)
                 else:
                     if sync_type == "Incremental Delta Sync" and old_entry:
                         delta = history_mgr.compute_delta(old_entry, parsed_data)
@@ -363,41 +411,80 @@ async def run_prototype(
                     else:
                         optimization_signal = "FULL_SYNC"
                         
-                    # Step 3: Loop and download/cache layout images
-                    for img_info in parsed_data["images"][:2]: 
+                    # Helper to retrieve or download asset asynchronously
+                    async def process_asset(asset_url, asset_type, extra_meta=None):
+                        if not asset_url or not asset_url.startswith("http"):
+                            return None
+                        cached_asset = history_mgr.get_cached_asset(asset_url)
+                        if cached_asset:
+                            print(f"[+] Reusing cached {asset_type} asset: {asset_url}")
+                            asset_info = dict(cached_asset)
+                            asset_info["version"] = cached_asset.get("version", 1) + 1
+                            if extra_meta:
+                                asset_info.update(extra_meta)
+                            return asset_info
+                        else:
+                            print(f"[+] Downloading {asset_type} asset: {asset_url}")
+                            alt_text = extra_meta.get("alt_text") if extra_meta else None
+                            width = extra_meta.get("width") if extra_meta else None
+                            height = extra_meta.get("height") if extra_meta else None
+                            
+                            loop = asyncio.get_running_loop()
+                            asset_info = await loop.run_in_executor(
+                                None,
+                                downloader.download_asset,
+                                asset_url,
+                                alt_text,
+                                width,
+                                height,
+                                asset_type
+                            )
+                            return asset_info
+
+                    # 1. Loop and download/cache layout images
+                    for img_info in parsed_data["images"]:
                         img_url = img_info["url"]
                         if img_url.startswith("http") and not img_url.endswith(".gif"):
-                            cached_asset = history_mgr.get_cached_asset(img_url)
-                            if cached_asset:
-                                print(f"[+] Reusing cached layout asset: {img_url}")
-                                asset_info = dict(cached_asset)
-                                asset_info["version"] = cached_asset.get("version", 1) + 1
-                                asset_info["healthy"] = img_info.get("healthy", True)
-                                asset_info["issue"] = img_info.get("issue")
-                                downloaded_images.append(asset_info)
-                            else:
-                                print(f"[+] Downloading layout asset: {img_url}")
-                                asset_info = downloader.download_asset(
-                                    img_url,
-                                    alt_text=img_info.get("alt"),
-                                    width=img_info.get("width"),
-                                    height=img_info.get("height")
-                                )
-                                if asset_info:
-                                    asset_info["version"] = 1
-                                    asset_info["healthy"] = img_info.get("healthy", True)
-                                    asset_info["issue"] = img_info.get("issue")
-                                    downloaded_images.append(asset_info)
+                            meta = {
+                                "alt_text": img_info.get("alt"),
+                                "width": img_info.get("width"),
+                                "height": img_info.get("height"),
+                                "healthy": img_info.get("healthy", True),
+                                "issue": img_info.get("issue")
+                            }
+                            res_asset = await process_asset(img_url, "image", meta)
+                            if res_asset:
+                                downloaded_images.append(res_asset)
+                                
+                    # 2. Loop and download/cache logos
+                    for logo_url in parsed_data.get("logos", []):
+                        res_asset = await process_asset(logo_url, "image")
+                        if res_asset:
+                            downloaded_logos.append(res_asset)
+                            
+                    # 3. Loop and download/cache documents
+                    for doc_url in parsed_data.get("documents", []):
+                        res_asset = await process_asset(doc_url, "document")
+                        if res_asset:
+                            downloaded_documents.append(res_asset)
+                            
+                    # 4. Loop and download/cache videos
+                    for video_url in parsed_data.get("videos", []):
+                        res_asset = await process_asset(video_url, "video")
+                        if res_asset:
+                            downloaded_videos.append(res_asset)
+                            
+                    all_downloaded_assets = downloaded_images + downloaded_logos + downloaded_documents + downloaded_videos
                     
-                    # Step 3.5: Run concurrent non-blocking broken link verification on first 10 links
-                    links_to_verify = parsed_data["links"][:10]
+                    # Step 3.5: Run concurrent non-blocking broken link verification on all links
+                    links_to_verify = parsed_data["links"]
                     if links_to_verify:
                         print(f"[*] Verifying status of {len(links_to_verify)} discovered links...")
                         verified_results = await asyncio.gather(*[verify_link_status(link) for link in links_to_verify])
                         
                     # Save the new/updated page record and cache the assets
                     parsed_data["verified_links"] = verified_results
-                    history_mgr.save_page_record(url, content_hash, dom_hash, parsed_data, downloaded_images)
+                    history_mgr.save_page_record(url, content_hash, dom_hash, parsed_data, all_downloaded_assets)
 
                 # Step 4: Compute Multidimensional Verification Scores
                 # 4.1 Completeness Score calculation
@@ -459,7 +546,12 @@ async def run_prototype(
                     title=parsed_data["title"],
                     content=parsed_data["content"][:400] + "..." if len(parsed_data["content"]) > 400 else parsed_data["content"],
                     images=downloaded_images,
-                    links=parsed_data["links"][:5],  # preview top 5 links
+                    links=parsed_data["links"],
+                    is_paywalled=parsed_data.get("is_paywalled", False),
+                    paywall_provider=parsed_data.get("paywall_provider"),
+                    paywall_percentage=parsed_data.get("paywall_percentage", 0.0),
+                    paywall_teaser_text=parsed_data.get("paywall_teaser_text"),
+                    robots_content=robots_content,
                     metadata={
                         "description": parsed_data["description"],
                         "headings": parsed_data["headings_list"],
@@ -467,6 +559,11 @@ async def run_prototype(
                         "tables": parsed_data["tables"],
                         "json_ld": parsed_data["json_ld"],
                         "social_metadata": parsed_data["social_metadata"],
+                        "language": parsed_data.get("language"),
+                        "is_paywalled": parsed_data.get("is_paywalled", False),
+                        "paywall_provider": parsed_data.get("paywall_provider"),
+                        "paywall_percentage": parsed_data.get("paywall_percentage", 0.0),
+                        "paywall_teaser_text": parsed_data.get("paywall_teaser_text"),
                         "performance": {
                             "dom_ready_time_ms": metrics["dom_ready_time"],
                             "load_duration_ms": metrics["load_duration"],
@@ -508,15 +605,21 @@ async def run_prototype(
                     charset=parsed_data["charset"],
                     status_code=metrics["status_code"],
                     response_headers=metrics["headers"],
+                    language=parsed_data.get("language"),
+                    forms=parsed_data.get("forms", []),
+                    buttons=parsed_data.get("buttons", []),
+                    breadcrumbs=parsed_data.get("breadcrumbs", []),
+                    footer_content=parsed_data.get("footer_content"),
                     tables=parsed_data["tables"],
                     internal_links=parsed_data["internal_links"],
                     external_links=parsed_data["external_links"],
                     redirect_chain=metrics.get("redirect_chain", []),
                     verified_links=verified_results,
                     download_links=parsed_data["download_links"],
-                    logos=parsed_data.get("logos", []),
+                    documents=downloaded_documents,
+                    logos=downloaded_logos,
                     svgs=parsed_data.get("svgs", []),
-                    videos=parsed_data.get("videos", []),
+                    videos=downloaded_videos,
                     desktop_above_fold=metrics.get("desktop_above_fold"),
                     mobile_view=metrics.get("mobile_view"),
                     tablet_view=metrics.get("tablet_view")
@@ -562,6 +665,7 @@ async def run_prototype(
     except Exception as e:
         print(f"[-] Execution error caught: {str(e)}")
         err_info = classify_failure(exception=e)
+        error_screenshot_path = getattr(e, "error_screenshot_path", None)
         
         scale_diagnostics = {
             "active_concurrency_slots": coordinator.active_slots,
@@ -574,6 +678,7 @@ async def run_prototype(
             status="failed",
             failure_category=err_info["category"],
             failure_reason=err_info["reason"],
+            error_screenshot_path=error_screenshot_path,
             url=url,
             metadata={
                 "error_details": str(e),
@@ -602,4 +707,14 @@ if __name__ == "__main__":
     else:
         target_site = "https://quotes.toscrape.com/js/" 
         
-    asyncio.run(run_prototype(target_site))
+    from app.queue_manager import task_scrape_url
+    print(f"[*] Enqueuing distributed scraping job for {target_site} via Celery...")
+    async_res = task_scrape_url.delay(target_site)
+    
+    print("[*] Waiting for worker node to return results package from cluster...")
+    try:
+        result_data = async_res.get(timeout=60)
+        print(f"[✓] Task completed successfully on cluster node!")
+        print(json.dumps(result_data, indent=2))
+    except Exception as e:
+        print(f"[-] Task execution on cluster node failed: {e}")

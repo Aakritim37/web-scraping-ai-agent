@@ -305,6 +305,19 @@ if st.session_state.sidebar_visible:
         
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         trigger_btn = st.button("Start AI Scraper", use_container_width=True)
+        if st.button("🔄 Force Refresh Cache", use_container_width=True, key="sb_force_refresh"):
+            st.cache_data.clear()
+            if os.path.exists("prototype_output.json"):
+                try: os.remove("prototype_output.json")
+                except: pass
+            if os.path.exists("storage/crawl_history.json"):
+                try: os.remove("storage/crawl_history.json")
+                except: pass
+            if os.path.exists("storage/session_state.json"):
+                try: os.remove("storage/session_state.json")
+                except: pass
+            st.toast("Telemetry, crawl history database, and output caches cleared!", icon="🔄")
+            st.rerun()
 else:
     st.markdown("---")
     sc_col1, sc_col2 = st.columns([3, 1])
@@ -313,6 +326,19 @@ else:
     with sc_col2:
         st.markdown("<br>", unsafe_allow_html=True)
         trigger_btn = st.button("Start AI Scraper", type="primary", use_container_width=True)
+        if st.button("🔄 Force Refresh Cache", use_container_width=True, key="main_force_refresh"):
+            st.cache_data.clear()
+            if os.path.exists("prototype_output.json"):
+                try: os.remove("prototype_output.json")
+                except: pass
+            if os.path.exists("storage/crawl_history.json"):
+                try: os.remove("storage/crawl_history.json")
+                except: pass
+            if os.path.exists("storage/session_state.json"):
+                try: os.remove("storage/session_state.json")
+                except: pass
+            st.toast("Telemetry, crawl history database, and output caches cleared!", icon="🔄")
+            st.rerun()
 
 # ─── RUNNING PIPELINE MONITOR STAGES ───
 if trigger_btn or os.path.exists("prototype_output.json"):
@@ -586,10 +612,11 @@ if trigger_btn or os.path.exists("prototype_output.json"):
         with layout_right:
             st.markdown("<h4 style='font-size: 0.95rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 14px;'>📊 Extracted Web Information Space</h4>", unsafe_allow_html=True)
             
-            tab_text, tab_assets, tab_deep, tab_telemetry, tab_json = st.tabs([
+            tab_text, tab_assets, tab_deep, tab_paywall, tab_telemetry, tab_json = st.tabs([
                 "📝 Clean Site Text", 
                 "🔗 Assets & Links", 
                 "🧬 Deep Parsed Elements",
+                "🛡️ Security & Paywalls",
                 "🌐 Network & Telemetry Diagnostics",
                 "💎 Perfect Validated JSON Code"
             ])
@@ -643,38 +670,133 @@ if trigger_btn or os.path.exists("prototype_output.json"):
                 st.markdown("##### Page Hidden Meta Description Text:")
                 m_desc = data_payload.get("metadata", {}).get("description", "")
                 st.markdown(f"<p style='color: #cbd5e1; font-size: 0.95rem; line-height: 1.6;'>{m_desc or 'No meta data descriptions embedded on target webpage source headers.'}</p>", unsafe_allow_html=True)
-                
                 st.markdown("<br>##### Clean Main Text Content Body Summary Preview:", unsafe_allow_html=True)
                 st.info(data_payload.get("content", "No legible textual text pieces recovered."))
                 st.markdown("</div>", unsafe_allow_html=True)
 
             with tab_assets:
                 st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-                st.markdown("##### 🖼️ Downloaded Image Files Details")
-                images_list = data_payload.get("images", [])
-                if not images_list:
-                    st.write("No image data assets found on this targeted node context location.")
-                else:
-                    for idx, img in enumerate(images_list):
-                        is_healthy = img.get("healthy", True)
-                        badge_color = "#10b981" if is_healthy else "#ef4444"
-                        badge_text = "HEALTHY" if is_healthy else f"ISSUE: {img.get('issue', 'BROKEN').upper()}"
-                        
-                        file_name = img.get('local_path','').split('/')[-1] or "unnamed"
-                        with st.expander(f"🖼️ Image #{idx+1}: {file_name} (Status: {badge_text})"):
-                            st.markdown(f"**Data Quality Status:** <span style='color: {badge_color}; font-weight: bold;'>{badge_text}</span>", unsafe_allow_html=True)
-                            st.write(f"**Web Link Source URL:** {img.get('original_url') or img.get('url')}")
-                            st.write(f"**Saved On Laptop Path:** `{img.get('local_path', 'Not downloaded')}`")
-                            st.write(f"**File Format Type:** `{img.get('mime_type', 'N/A')}` | **File Size Weight:** `{img.get('file_size', 0)} bytes` | **Cache Version:** `{img.get('version', 1)}`")
+                st.markdown("### 🎨 Asset Gallery")
+                
+                gallery_tabs = st.tabs(["🖼️ Images", "🎬 Videos", "📄 Documents", "🏢 Logos"])
+                
+                # 🖼️ Images Tab
+                with gallery_tabs[0]:
+                    images_list = data_payload.get("images", [])
+                    if not images_list:
+                        st.write("No image data assets found on this targeted node context location.")
+                    else:
+                        for idx, img in enumerate(images_list):
+                            is_healthy = img.get("healthy", True)
+                            badge_color = "#10b981" if is_healthy else "#ef4444"
+                            badge_text = "HEALTHY" if is_healthy else f"ISSUE: {img.get('issue', 'BROKEN').upper()}"
                             
-                            alt_val = img.get('alt_text') or img.get('alt')
-                            width_val = img.get('width')
-                            height_val = img.get('height')
-                            st.write(f"**Description (Alt-Text):** `{alt_val or 'None specified'}`")
-                            if width_val or height_val:
-                                st.write(f"**Visual Dimensions:** `{width_val or '?'}` x `{height_val or '?'}` pixels")
-                            else:
-                                st.write("**Visual Dimensions:** `None specified`")
+                            local_path = img.get('local_path','')
+                            file_name = local_path.split('/')[-1] if local_path else "unnamed"
+                            with st.expander(f"🖼️ Image #{idx+1}: {file_name} (Status: {badge_text})"):
+                                st.markdown(f"**Data Quality Status:** <span style='color: {badge_color}; font-weight: bold;'>{badge_text}</span>", unsafe_allow_html=True)
+                                st.write(f"**Web Link Source URL:** {img.get('original_url') or img.get('url')}")
+                                st.write(f"**Saved On Laptop Path:** `{local_path or 'Not downloaded'}`")
+                                st.write(f"**File Format Type:** `{img.get('mime_type', 'N/A')}` | **File Size Weight:** `{img.get('file_size', 0)} bytes` | **Cache Version:** `{img.get('version', 1)}`")
+                                
+                                alt_val = img.get('alt_text') or img.get('alt')
+                                width_val = img.get('width')
+                                height_val = img.get('height')
+                                st.write(f"**Description (Alt-Text):** `{alt_val or 'None specified'}`")
+                                if width_val or height_val:
+                                    st.write(f"**Visual Dimensions:** `{width_val or '?'}` x `{height_val or '?'}` pixels")
+                                else:
+                                    st.write("**Visual Dimensions:** `None specified`")
+                                    
+                                if local_path and os.path.exists(local_path):
+                                    try:
+                                        with open(local_path, "rb") as f:
+                                            st.image(f.read(), use_container_width=True)
+                                    except Exception:
+                                        pass
+
+                # 🎬 Videos Tab
+                with gallery_tabs[1]:
+                    videos_list = data_payload.get("videos", [])
+                    if not videos_list:
+                        st.write("No video attachments or streams found.")
+                    else:
+                        for idx, video in enumerate(videos_list):
+                            original_url = video.get("original_url") or video.get("url") if isinstance(video, dict) else str(video)
+                            local_path = video.get("local_path") if isinstance(video, dict) else None
+                            file_name = local_path.split('/')[-1] if local_path else original_url.split('/')[-1]
+                            
+                            with st.expander(f"🎬 Video #{idx+1}: {file_name}"):
+                                st.write(f"**Web Link Source URL:** {original_url}")
+                                if local_path:
+                                    st.write(f"**Saved On Laptop Path:** `{local_path}`")
+                                    if os.path.exists(local_path):
+                                        try:
+                                            with open(local_path, "rb") as f:
+                                                st.video(f.read())
+                                        except Exception:
+                                            pass
+                                if not local_path and ("youtube.com" in original_url or "youtu.be" in original_url or "vimeo.com" in original_url):
+                                    try:
+                                        st.video(original_url)
+                                    except Exception:
+                                        pass
+
+                # 📄 Documents Tab
+                with gallery_tabs[2]:
+                    documents_list = data_payload.get("documents", [])
+                    if not documents_list:
+                        st.write("No document attachments found on this target.")
+                    else:
+                        for idx, doc in enumerate(documents_list):
+                            original_url = doc.get("original_url") or doc.get("url") if isinstance(doc, dict) else str(doc)
+                            local_path = doc.get("local_path") if isinstance(doc, dict) else None
+                            file_name = local_path.split('/')[-1] if local_path else original_url.split('/')[-1]
+                            
+                            with st.expander(f"📄 Document #{idx+1}: {file_name}"):
+                                st.write(f"**Web Link Source URL:** {original_url}")
+                                if local_path:
+                                    st.write(f"**Saved On Laptop Path:** `{local_path}`")
+                                    st.write(f"**File Size:** `{doc.get('file_size', 0)} bytes` | **MIME Type:** `{doc.get('mime_type', 'N/A')}`")
+                                    if os.path.exists(local_path):
+                                        try:
+                                            with open(local_path, "rb") as f:
+                                                st.download_button(
+                                                    label="📥 Download Local File Attachment",
+                                                    data=f.read(),
+                                                    file_name=file_name,
+                                                    mime=doc.get("mime_type", "application/octet-stream"),
+                                                    key=f"doc_dl_{idx}"
+                                                )
+                                        except Exception:
+                                            pass
+
+                # 🏢 Logos Tab
+                with gallery_tabs[3]:
+                    logos_list = data_payload.get("logos", [])
+                    if not logos_list:
+                        st.write("No corporate logos or brand icon linkages discovered.")
+                    else:
+                        for idx, logo in enumerate(logos_list):
+                            original_url = logo.get("original_url") or logo.get("url") if isinstance(logo, dict) else str(logo)
+                            local_path = logo.get("local_path") if isinstance(logo, dict) else None
+                            file_name = local_path.split('/')[-1] if local_path else original_url.split('/')[-1]
+                            
+                            with st.expander(f"🏢 Logo #{idx+1}: {file_name}"):
+                                st.write(f"**Web Link Source URL:** {original_url}")
+                                if local_path:
+                                    st.write(f"**Saved On Laptop Path:** `{local_path}`")
+                                if local_path and os.path.exists(local_path):
+                                    try:
+                                        with open(local_path, "rb") as f:
+                                            st.image(f.read(), width=150)
+                                    except Exception:
+                                        pass
+                                elif any(ext in original_url.lower() for ext in [".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico"]):
+                                    try:
+                                        st.image(original_url, width=150)
+                                    except Exception:
+                                        pass
                 
                 st.markdown("<hr style='border-color: rgba(255,255,255,0.06); margin: 24px 0;'>", unsafe_allow_html=True)
                 st.markdown("##### 🔗 Outgoing Links & Classifications")
@@ -704,11 +826,10 @@ if trigger_btn or os.path.exists("prototype_output.json"):
                             st.markdown(f"- [{l}]({l})")
 
                 verified_links = data_payload.get("verified_links", [])
-                with st.expander(f"🛡️ Link Status Verification (Capped at 10)"):
+                with st.expander(f"🛡️ Link Status Verification ({len(verified_links)})"):
                     if not verified_links:
                         st.write("No link verification status available.")
                     else:
-                        # Build a clean markdown table
                         table_md = "| Verified Link URL | HTTP Status | Verdict |\n| :--- | :--- | :--- |\n"
                         for entry in verified_links:
                             url_str = entry.get("url", "")
@@ -722,21 +843,6 @@ if trigger_btn or os.path.exists("prototype_output.json"):
                                 
                             table_md += f"| [{url_str}]({url_str}) | `{status_code_str}` | {status_emoji} |\n"
                         st.markdown(table_md)
-
-                st.markdown("<hr style='border-color: rgba(255,255,255,0.06); margin: 24px 0;'>", unsafe_allow_html=True)
-                st.markdown("##### 🎨 Logo, SVG & Video Assets")
-
-                logos_list = data_payload.get("logos", [])
-                with st.expander(f"🏢 Page Corporate Logos ({len(logos_list)})"):
-                    if not logos_list:
-                        st.write("No corporate logos or brand icon linkages discovered.")
-                    else:
-                        for l in logos_list:
-                            st.markdown(f"- [{l}]({l})")
-                            if any(ext in l.lower() for ext in [".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico"]):
-                                st.markdown('<div class="logo-image-container">', unsafe_allow_html=True)
-                                st.image(l, width=120)
-                                st.markdown('</div>', unsafe_allow_html=True)
 
                 svgs_list = data_payload.get("svgs", [])
                 with st.expander(f"📐 Inline Vector SVGs ({len(svgs_list)})"):
@@ -765,19 +871,6 @@ if trigger_btn or os.path.exists("prototype_output.json"):
                             st.markdown(f'<div class="svg-contrast-container">{s}</div>', unsafe_allow_html=True)
                             with st.expander("Show Raw SVG Code"):
                                 st.code(s, language="xml")
-
-                videos_list = data_payload.get("videos", [])
-                with st.expander(f"🎬 Video Attachments / Streams ({len(videos_list)})"):
-                    if not videos_list:
-                        st.write("No attached video resources or embedded YouTube/Vimeo links detected.")
-                    else:
-                        for l in videos_list:
-                            st.markdown(f"- [{l}]({l})")
-                            if "youtube.com" in l or "youtu.be" in l or "vimeo.com" in l:
-                                try:
-                                    st.video(l)
-                                except Exception:
-                                    pass
                 st.markdown("</div>", unsafe_allow_html=True)
 
             with tab_deep:
@@ -842,6 +935,47 @@ if trigger_btn or os.path.exists("prototype_output.json"):
                 if not any([headings, social, lists, tables, json_ld]):
                     st.info("No deep structured components (Lists, Tables, JSON-LD, Social Tags) resolved on the page.")
                 
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            with tab_paywall:
+                st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
+                st.markdown("### 🛡️ Paywall Analytics & Security Diagnostics")
+                
+                meta_payload = data_payload.get("metadata", {})
+                is_paywalled = meta_payload.get("is_paywalled", False)
+                paywall_provider = meta_payload.get("paywall_provider")
+                paywall_percentage = meta_payload.get("paywall_percentage", 0.0)
+                paywall_teaser_text = meta_payload.get("paywall_teaser_text")
+                
+                if not is_paywalled:
+                    st.markdown("""
+                        <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 16px;'>
+                            <span style='background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); padding: 4px 12px; border-radius: 9999px; color: #10b981; font-size: 0.85rem; font-weight: 600;'>
+                                ✅ No paywall detected
+                            </span>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    st.success("The webpage does not appear to block content via a subscription or premium paywall.")
+                else:
+                    st.markdown("""
+                        <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 16px;'>
+                            <span style='background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); padding: 4px 12px; border-radius: 9999px; color: #ef4444; font-size: 0.85rem; font-weight: 600;'>
+                                ⚠️ Paywall Detected
+                            </span>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.write(f"**Paywall Provider:** `{paywall_provider or 'Unknown / Proprietary'}`")
+                    
+                    st.write(f"**Blocked Content Ratio:** `{paywall_percentage}%` of document paragraphs are locked.")
+                    st.progress(paywall_percentage / 100.0)
+                    
+                    with st.expander("📝 Visible Teaser Text Preview"):
+                        if paywall_teaser_text:
+                            st.write(paywall_teaser_text)
+                        else:
+                            st.write("No teaser text found preceding the paywall container.")
+                            
                 st.markdown("</div>", unsafe_allow_html=True)
 
             with tab_telemetry:

@@ -1,6 +1,6 @@
 # app/schemas.py
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Literal
 from datetime import datetime, timezone
 
 class AssetSchema(BaseModel):
@@ -27,6 +27,12 @@ class ScrapeResultSchema(BaseModel):
     status: str = Field(..., description="success | partial | failed")
     failure_reason: Optional[str] = None
     failure_category: Optional[str] = None
+    error_screenshot_path: Optional[str] = None
+    is_paywalled: bool = False
+    paywall_provider: Optional[str] = None
+    paywall_percentage: float = 0.0
+    paywall_teaser_text: Optional[str] = None
+    robots_content: Optional[str] = None
     url: str
     title: Optional[str] = None
     content: Optional[str] = None
@@ -46,6 +52,11 @@ class ScrapeResultSchema(BaseModel):
     charset: Optional[str] = None
     status_code: Optional[int] = None
     response_headers: Dict[str, str] = {}
+    language: Optional[str] = None
+    forms: Optional[List[Dict[str, Any]]] = []
+    buttons: Optional[List[Dict[str, Any]]] = []
+    breadcrumbs: Optional[List[str]] = []
+    footer_content: Optional[str] = None
     
     # Tabular Data addition (elevated to top-level)
     tables: List[Dict[str, Any]] = []
@@ -58,11 +69,18 @@ class ScrapeResultSchema(BaseModel):
     download_links: List[str] = []
 
     # Media Asset Pipeline additions
-    logos: List[str] = []
+    logos: List[AssetSchema] = []
     svgs: List[str] = []
-    videos: List[str] = []
+    videos: List[AssetSchema] = []
 
     # Multi-Viewport screenshot additions
     desktop_above_fold: Optional[str] = None
     mobile_view: Optional[str] = None
     tablet_view: Optional[str] = None
+
+class ScraperConfigSchema(BaseModel):
+    """
+    Validation schema for scraping configuration input parameter.
+    Ensures input parameters are strictly configured.
+    """
+    browser_engine: Literal["chromium", "firefox", "webkit"] = "chromium"

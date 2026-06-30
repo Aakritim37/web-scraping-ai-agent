@@ -35,6 +35,14 @@ class AntiBotChallengeError(ScraperError):
     """Raised when blocked by an anti-bot system (e.g. Cloudflare, CAPTCHA)."""
     pass
 
+class AkamaiBlockedError(AntiBotChallengeError):
+    """Raised when blocked by Akamai bot mitigation."""
+    pass
+
+class DataDomeBlockedError(AntiBotChallengeError):
+    """Raised when blocked by DataDome bot mitigation."""
+    pass
+
 class ScraperTimeoutError(NetworkError):
     """Raised when the scraping operation times out."""
     pass
@@ -97,6 +105,30 @@ def classify_failure(exception: Exception = None, status_code: int = None, page_
         return {
             "category": "PAYWALLS",
             "reason": "Access restricted by subscription paywall or login requirement."
+        }
+
+    # 2.5 Akamai and DataDome Checks
+    akamai_patterns = ["akamai.net", "an activity identifier", "reference id:"]
+    datadome_patterns = ["datadome", "captcha-delivery.com", "dd="]
+    
+    if (
+        isinstance(exception, AkamaiBlockedError) or
+        any(p in exc_str for p in akamai_patterns) or
+        any(p in content_lower for p in akamai_patterns)
+    ):
+        return {
+            "category": "ANTI_BOT",
+            "reason": "Access blocked by Akamai Bot Mitigation challenge screen."
+        }
+        
+    if (
+        isinstance(exception, DataDomeBlockedError) or
+        any(p in exc_str for p in datadome_patterns) or
+        any(p in content_lower for p in datadome_patterns)
+    ):
+        return {
+            "category": "ANTI_BOT",
+            "reason": "Access blocked by DataDome Bot Protection challenge screen."
         }
 
     # 3. Anti-bot / CAPTCHA Check (including Cloudflare, CAPTCHAs, Turnstile, Amazon block screens)
